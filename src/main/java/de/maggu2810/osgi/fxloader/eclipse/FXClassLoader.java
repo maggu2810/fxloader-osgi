@@ -14,6 +14,9 @@ package de.maggu2810.osgi.fxloader.eclipse;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.ModuleLayer.Controller;
+import java.lang.module.Configuration;
+import java.lang.module.ModuleFinder;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.file.Files;
@@ -54,12 +57,7 @@ import org.osgi.util.tracker.ServiceTracker;
 
 import de.maggu2810.osgi.fxloader.eclipse.jpms.AddOpenExports;
 import de.maggu2810.osgi.fxloader.eclipse.jpms.AddReads;
-import de.maggu2810.osgi.fxloader.eclipse.jpms.ConfigurationWrapper;
 import de.maggu2810.osgi.fxloader.eclipse.jpms.JavaModuleLayerModification;
-import de.maggu2810.osgi.fxloader.eclipse.jpms.ModuleFinderWrapper;
-import de.maggu2810.osgi.fxloader.eclipse.jpms.ModuleLayerWrapper;
-import de.maggu2810.osgi.fxloader.eclipse.jpms.ModuleLayerWrapper.ControllerWrapper;
-import de.maggu2810.osgi.fxloader.eclipse.jpms.ModuleWrapper;
 
 /**
  * Hook to overwrite OSGis default classloading
@@ -73,7 +71,7 @@ public class FXClassLoader extends ClassLoaderHook {
     // private boolean swtAvailable;
     private BundleContext frameworkContext;
     private ClassLoader j9Classloader;
-    private ModuleLayerWrapper moduleLayer;
+    private ModuleLayer moduleLayer;
     private ClassLoader j11Classloader;
     private static Boolean IS_EQUAL_GREATER_11;
     private static Boolean IS_JAVA_8;
@@ -211,8 +209,8 @@ public class FXClassLoader extends ClassLoaderHook {
                 try {
                     this.boostrappingModules.set(true);
                     // As all modules are loaded by the same classloader using the first one is OK
-                    final ModuleLayerWrapper layer = getModuleLayer();
-                    final Set<ModuleWrapper> modules = layer.modules();
+                    final ModuleLayer layer = getModuleLayer();
+                    final Set<Module> modules = layer.modules();
                     if (!modules.isEmpty()) {
                         this.j11Classloader = layer.findLoader(modules.iterator().next().getName());
                         this.j11ModulePackages = modules.stream().flatMap(m -> m.getPackages().stream())
@@ -261,7 +259,7 @@ public class FXClassLoader extends ClassLoaderHook {
         }
     }
 
-    private synchronized ModuleLayerWrapper getModuleLayer() throws Throwable {
+    private synchronized ModuleLayer getModuleLayer() throws Throwable {
         if (isEqualGreaterJDK11()) {
             if (this.moduleLayer == null) {
                 final String javafxDir = System.getProperty("efxclipse.java-modules.dir"); //$NON-NLS-1$
@@ -404,7 +402,7 @@ public class FXClassLoader extends ClassLoaderHook {
                 .collect(Collectors.toSet());
     }
 
-    private static ModuleLayerWrapper initModuleLayer(final ClassLoader parentClassloader,
+    private static ModuleLayer initModuleLayer(final ClassLoader parentClassloader,
             final List<FXProviderBundle> bundles, final JavaModuleLayerModification modifications) throws Throwable {
         try {
             if (Boolean.getBoolean("efxclipse.osgi.hook.advanced-modules") || !modifications.isEmpty()) { //$NON-NLS-1$
@@ -418,7 +416,7 @@ public class FXClassLoader extends ClassLoaderHook {
         }
     }
 
-    private static ModuleLayerWrapper advancedModuleLayerBoostrap(final ClassLoader parentClassloader,
+    private static ModuleLayer advancedModuleLayerBoostrap(final ClassLoader parentClassloader,
             final List<FXProviderBundle> bundles, final JavaModuleLayerModification modifications) throws Throwable {
         if (FXClassloaderConfigurator.DEBUG) {
             System.err.println(
@@ -445,6 +443,7 @@ public class FXClassLoader extends ClassLoaderHook {
 
         final URLClassLoader c = new URLClassLoader(urls, parentClassloader) {
             // Method is defined on Java-9 onwards
+            @Override
             @SuppressWarnings("unused")
             protected java.lang.Class<?> findClass(final String moduleName, final String name) {
                 try {
@@ -455,26 +454,27 @@ public class FXClassLoader extends ClassLoaderHook {
             }
 
             // Method is defined on Java-9 onwards
+            @Override
             @SuppressWarnings("unused")
             protected URL findResource(final String moduleName, final String name) throws IOException {
                 return findResource(name);
             }
         };
 
-        final ModuleFinderWrapper fxModuleFinder = ModuleFinderWrapper.of(paths);
-        final ModuleFinderWrapper empty = ModuleFinderWrapper.of();
-        final ModuleLayerWrapper bootLayer = ModuleLayerWrapper.boot();
-        final ConfigurationWrapper configuration = bootLayer.configuration();
-        final ConfigurationWrapper newConfiguration = configuration.resolve(fxModuleFinder, empty, modules);
+        final ModuleFinder fxModuleFinder = ModuleFinder.of(paths);
+        final ModuleFinder empty = ModuleFinder.of();
+        final ModuleLayer bootLayer = ModuleLayer.boot();
+        final Configuration configuration = bootLayer.configuration();
+        final Configuration newConfiguration = configuration.resolve(fxModuleFinder, empty, modules);
         final Function<String, ClassLoader> clComputer = s -> c;
-        final ControllerWrapper moduleLayerController = ModuleLayerWrapper.defineModules(newConfiguration,
-                Arrays.asList(bootLayer), clComputer);
+        final Controller moduleLayerController = ModuleLayer.defineModules(newConfiguration, Arrays.asList(bootLayer),
+                clComputer);
         modifications.applyConfigurations(moduleLayerController);
 
         return moduleLayerController.layer();
     }
 
-    private static ModuleLayerWrapper defaultModuleLayerBootstrap(final ClassLoader parentClassloader,
+    private static ModuleLayer defaultModuleLayerBootstrap(final ClassLoader parentClassloader,
             final List<FXProviderBundle> bundles) throws Throwable {
         final Path[] paths = bundles.stream().map(p -> p.path).toArray(i -> new Path[i]);
         final Set<String> modules = bundles.stream().map(p -> p.module).collect(Collectors.toSet());
@@ -485,12 +485,12 @@ public class FXClassLoader extends ClassLoaderHook {
             }
         }
 
-        final ModuleFinderWrapper finder = ModuleFinderWrapper.of(paths);
-        final ModuleLayerWrapper boot = ModuleLayerWrapper.boot();
-        final ConfigurationWrapper configuration = boot.configuration();
-        final ModuleFinderWrapper of = ModuleFinderWrapper.of();
-        final ConfigurationWrapper cf = configuration.resolve(finder, of, modules);
-        final ModuleLayerWrapper layer = boot.defineModulesWithOneLoader(cf, parentClassloader);
+        final ModuleFinder finder = ModuleFinder.of(paths);
+        final ModuleLayer boot = ModuleLayer.boot();
+        final Configuration configuration = boot.configuration();
+        final ModuleFinder of = ModuleFinder.of();
+        final Configuration cf = configuration.resolve(finder, of, modules);
+        final ModuleLayer layer = boot.defineModulesWithOneLoader(cf, parentClassloader);
 
         return layer;
     }
@@ -943,7 +943,7 @@ public class FXClassLoader extends ClassLoaderHook {
             final Enumeration<URL> en1 = this.primaryLoader.getResources(name);
             final Enumeration<URL> en2 = this.lastResortLoader.getResources(name);
 
-            return new Enumeration<URL>() {
+            return new Enumeration<>() {
                 @Override
                 public boolean hasMoreElements() {
                     if (en1.hasMoreElements()) {
@@ -986,7 +986,7 @@ public class FXClassLoader extends ClassLoaderHook {
             final Enumeration<URL> en1 = this.primaryLoader.getResources(name);
             final Enumeration<URL> en2 = this.lastResortLoader.getResources(name);
 
-            return new Enumeration<URL>() {
+            return new Enumeration<>() {
                 @Override
                 public boolean hasMoreElements() {
                     if (en1.hasMoreElements()) {

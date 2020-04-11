@@ -41,7 +41,7 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
 
-    <my.java.version>8</my.java.version>
+    <my.java.version>11</my.java.version>
     <maven.compiler.source>${my.java.version}</maven.compiler.source>
     <maven.compiler.target>${my.java.version}</maven.compiler.target>
     <maven.compiler.compilerVersion>${my.java.version}</maven.compiler.compilerVersion>

@@ -11,6 +11,7 @@
 
 package de.maggu2810.osgi.fxloader.eclipse.jpms;
 
+import java.lang.ModuleLayer.Controller;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -22,7 +23,6 @@ import org.osgi.framework.Version;
 import org.osgi.framework.wiring.BundleWiring;
 
 import de.maggu2810.osgi.fxloader.eclipse.FXClassloaderConfigurator;
-import de.maggu2810.osgi.fxloader.eclipse.jpms.ModuleLayerWrapper.ControllerWrapper;
 
 @SuppressWarnings("javadoc")
 public class JavaModuleLayerModification {
@@ -49,17 +49,17 @@ public class JavaModuleLayerModification {
                 Collections.emptySet());
     }
 
-    private static ModuleWrapper getUnnamedModule() {
-        return new ClassloaderWrapper(JavaModuleLayerModification.class.getClassLoader()).getUnnamedModule();
+    private static Module getUnnamedModule() {
+        return JavaModuleLayerModification.class.getClassLoader().getUnnamedModule();
     }
 
-    private ModuleWrapper getBundleUnnamed(final String value) {
+    private Module getBundleUnnamed(final String value) {
         if (value.startsWith("BUNDLE(@")) { //$NON-NLS-1$
             final String id = value.substring(8, value.length() - 1);
             final long l = Long.parseLong(id);
             for (final Bundle b : this.bundles) {
                 if (b.getBundleId() == l) {
-                    return new ClassloaderWrapper(b.adapt(BundleWiring.class).getClassLoader()).getUnnamedModule();
+                    return b.adapt(BundleWiring.class).getClassLoader().getUnnamedModule();
                 }
             }
         } else if (value.startsWith("BUNDLE(")) { //$NON-NLS-1$
@@ -71,7 +71,7 @@ public class JavaModuleLayerModification {
 
                 for (final Bundle b : this.bundles) {
                     if (b.getSymbolicName().equals(symbolicName) && version.equals(b.getVersion())) {
-                        return new ClassloaderWrapper(b.adapt(BundleWiring.class).getClassLoader()).getUnnamedModule();
+                        return b.adapt(BundleWiring.class).getClassLoader().getUnnamedModule();
                     }
                 }
             }
@@ -79,19 +79,19 @@ public class JavaModuleLayerModification {
         return null;
     }
 
-    public void applyConfigurations(final ControllerWrapper controller) {
-        final Map<String, ModuleWrapper> map = new HashMap<>();
+    public void applyConfigurations(final Controller controller) {
+        final Map<String, Module> map = new HashMap<>();
         for (final AddOpenExports e : this.exports) {
-            final ModuleWrapper sourceModule = map.computeIfAbsent(e.source,
+            final Module sourceModule = map.computeIfAbsent(e.source,
                     n -> controller.layer().findModule(n).orElse(null));
-            ModuleWrapper targetModule = null;
+            Module targetModule = null;
             if (e.target.equals("ALL-UNNAMED")) { //$NON-NLS-1$
                 targetModule = getUnnamedModule();
             } else if (e.target.startsWith("BUNDLE")) { //$NON-NLS-1$
                 targetModule = getBundleUnnamed(e.target);
             } else {
                 targetModule = map.computeIfAbsent(e.target, n -> {
-                    return Stream.of(controller.layer(), ModuleLayerWrapper.boot()) //
+                    return Stream.of(controller.layer(), ModuleLayer.boot()) //
                             .map(l -> l.findModule(n).orElse(null)) //
                             .findFirst().orElse(null);
                 });
@@ -116,16 +116,16 @@ public class JavaModuleLayerModification {
         }
 
         for (final AddOpenExports e : this.opens) {
-            final ModuleWrapper sourceModule = map.computeIfAbsent(e.source,
+            final Module sourceModule = map.computeIfAbsent(e.source,
                     n -> controller.layer().findModule(n).orElse(null));
-            ModuleWrapper targetModule = null;
+            Module targetModule = null;
             if (e.target.equals("ALL-UNNAMED")) { //$NON-NLS-1$
                 targetModule = getUnnamedModule();
             } else if (e.target.startsWith("BUNDLE")) { //$NON-NLS-1$
                 targetModule = getBundleUnnamed(e.target);
             } else {
                 targetModule = map.computeIfAbsent(e.target, n -> {
-                    return Stream.of(controller.layer(), ModuleLayerWrapper.boot()) //
+                    return Stream.of(controller.layer(), ModuleLayer.boot()) //
                             .map(l -> l.findModule(n).orElse(null)) //
                             .findFirst().orElse(null);
                 });
@@ -149,16 +149,16 @@ public class JavaModuleLayerModification {
         }
 
         for (final AddReads r : this.reads) {
-            final ModuleWrapper sourceModule = map.computeIfAbsent(r.source,
+            final Module sourceModule = map.computeIfAbsent(r.source,
                     n -> controller.layer().findModule(n).orElse(null));
-            ModuleWrapper targetModule = null;
+            Module targetModule = null;
             if (r.target.equals("ALL-UNNAMED")) { //$NON-NLS-1$
                 targetModule = getUnnamedModule();
             } else if (r.target.startsWith("BUNDLE")) { //$NON-NLS-1$
                 targetModule = getBundleUnnamed(r.target);
             } else {
                 targetModule = map.computeIfAbsent(r.target, n -> {
-                    return Stream.of(controller.layer(), ModuleLayerWrapper.boot()) //
+                    return Stream.of(controller.layer(), ModuleLayer.boot()) //
                             .map(l -> l.findModule(n).orElse(null)) //
                             .findFirst().orElse(null);
                 });
