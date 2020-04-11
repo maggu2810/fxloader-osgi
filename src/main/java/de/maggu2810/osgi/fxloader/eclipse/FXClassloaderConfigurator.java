@@ -8,7 +8,8 @@
  * Contributors:
  *     Tom Schindl<tom.schindl@bestsolution.at> - initial API and implementation
  *******************************************************************************/
-package org.eclipse.fx.osgi.fxloader;
+
+package de.maggu2810.osgi.fxloader.eclipse;
 
 import org.eclipse.osgi.internal.hookregistry.HookConfigurator;
 import org.eclipse.osgi.internal.hookregistry.HookRegistry;
@@ -17,14 +18,14 @@ import org.eclipse.osgi.internal.hookregistry.HookRegistry;
  * Hook configurator for classloading
  */
 public class FXClassloaderConfigurator implements HookConfigurator {
-	/**
-	 * Debug switch
-	 */
-	public static final boolean DEBUG = Boolean.getBoolean("efxclipse.osgi.hook.debug"); //$NON-NLS-1$
+    /**
+     * Debug switch
+     */
+    public static final boolean DEBUG = Boolean.getBoolean("fxloader.osgi.eclipse.hook.debug"); //$NON-NLS-1$
 
-	@Override
-	public void addHooks(HookRegistry hookRegistry) {
-		hookRegistry.addClassLoaderHook(new FXClassLoader());
-	}
+    @Override
+    public void addHooks(final HookRegistry hookRegistry) {
+        hookRegistry.addClassLoaderHook(new FXClassLoader());
+    }
 
 }
