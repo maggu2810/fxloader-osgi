@@ -4,7 +4,7 @@
 
   <groupId>de.maggu2810.osgi.fxloader</groupId>
   <artifactId>fxloader-osgi-eclipse</artifactId>
-  <version>0.0.3</version>
+  <version>0.0.4-SNAPSHOT</version>
 
   <licenses>
     <license>
@@ -17,7 +17,7 @@
   <scm>
     <connection>scm:git:git@github.com:maggu2810/fxloader-osgi.git</connection>
     <developerConnection>scm:git:git@github.com:maggu2810/fxloader-osgi.git</developerConnection>
-    <tag>fxloader-osgi-eclipse-0.0.3</tag>
+    <tag>HEAD</tag>
     <url>https://github.com/maggu2810/fxloader-osgi</url>
   </scm>
 
