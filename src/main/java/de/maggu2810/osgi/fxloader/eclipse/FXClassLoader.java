@@ -11,9 +11,7 @@
 
 package de.maggu2810.osgi.fxloader.eclipse;
 
-import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
 import java.lang.ModuleLayer.Controller;
 import java.lang.module.Configuration;
 import java.lang.module.ModuleFinder;
@@ -24,8 +22,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
-import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -36,8 +32,6 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -67,44 +61,13 @@ public class FXClassLoader extends ClassLoaderHook {
     private static final String SWT_SYMBOLIC_NAME = "org.eclipse.swt"; //$NON-NLS-1$
 
     private final AtomicBoolean boostrappingModules = new AtomicBoolean();
-    private URLClassLoader classLoader;
-    // private boolean swtAvailable;
     private BundleContext frameworkContext;
-    private ClassLoader j9Classloader;
     private ModuleLayer moduleLayer;
     private ClassLoader j11Classloader;
-    private static Boolean IS_EQUAL_GREATER_11;
-    private static Boolean IS_JAVA_8;
     private static Map<String, ServiceTracker<Object, URLConverter>> urlTrackers = new HashMap<>();
     private Set<String> j11ModulePackages;
     private boolean reentrance;
 
-    static boolean isJDK8() {
-        if (IS_JAVA_8 != null) {
-            return IS_JAVA_8.booleanValue();
-        }
-        final boolean rv = System.getProperty("java.version", "").startsWith("1.8"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-        IS_JAVA_8 = Boolean.valueOf(rv);
-        return rv;
-    }
-
-    private static boolean isEqualGreaterJDK11() {
-        if (IS_EQUAL_GREATER_11 != null) {
-            return IS_EQUAL_GREATER_11.booleanValue();
-        }
-        final String version = System.getProperty("java.version", ""); //$NON-NLS-1$//$NON-NLS-2$
-        final String[] parts = version.split("\\D"); //$NON-NLS-1$
-        boolean rv = false;
-        try {
-            rv = Integer.parseInt(parts[0]) >= 11;
-        } catch (final Throwable e) {
-            // TODO: handle exception
-        }
-        IS_EQUAL_GREATER_11 = Boolean.valueOf(rv);
-        return rv;
-    }
-
-    @SuppressWarnings("resource")
     @Override
     public Class<?> postFindClass(final String name, final ModuleClassLoader moduleClassLoader)
             throws ClassNotFoundException {
@@ -116,67 +79,17 @@ public class FXClassLoader extends ClassLoaderHook {
         }
         this.reentrance = true;
         try {
-            // this is pre java 9
-            if (isJDK8()) {
-                if ((name.startsWith("javafx") //$NON-NLS-1$
-                        || name.startsWith("netscape.javascript") //$NON-NLS-1$
-                        || name.startsWith("com.sun.glass.events") //$NON-NLS-1$
-                        || name.startsWith("com.sun.glass.ui") //$NON-NLS-1$
-                        || name.startsWith("com.sun.javafx") //$NON-NLS-1$
-                        || name.startsWith("com.sun.media.jfxmedia") //$NON-NLS-1$
-                        || name.startsWith("com.sun.media.jfxmediaimpl") //$NON-NLS-1$
-                        || name.startsWith("com.sun.openpisces") //$NON-NLS-1$
-                        || name.startsWith("com.sun.pisces") //$NON-NLS-1$
-                        || name.startsWith("com.sun.prism") //$NON-NLS-1$
-                        || name.startsWith("com.sun.scenario") //$NON-NLS-1$
-                        || name.startsWith("com.sun.webkit") //$NON-NLS-1$
-                ) && !moduleClassLoader.getBundle().getSymbolicName().equals("org.eclipse.swt")) { //$NON-NLS-1$
-                    final URLClassLoader fxClassloader = getFXClassloader();
-                    if (fxClassloader != null) {
-                        return fxClassloader.loadClass(name);
-                    } else {
-                        throw new ClassNotFoundException(
-                                "Unable to locate JavaFX. Please make sure you have a JDK with JavaFX installed eg on Linux you require an Oracle JDK"); //$NON-NLS-1$
-                    }
+            // JavaFX is not part of JDK anymore need to install modules on the fly
+            try {
+                return findClassJavaFX11(name, moduleClassLoader);
+            } catch (final Throwable e) {
+                if (FXClassloaderConfigurator.DEBUG) {
+                    System.err.println("FXClassLoader#postFindClass - exception while loading " + e.getMessage() //$NON-NLS-1$
+                            + ". Continue delegation by returning NULL");
+                    e.printStackTrace();
                 }
-            } else if (isEqualGreaterJDK11()) {
-                // JavaFX is not part of JDK anymore need to install modules on the fly
-                try {
-                    return findClassJavaFX11(name, moduleClassLoader);
-                } catch (final Throwable e) {
-                    if (FXClassloaderConfigurator.DEBUG) {
-                        System.err.println("FXClassLoader#postFindClass - exception while loading " + e.getMessage() //$NON-NLS-1$
-                                + ". Continue delegation by returning NULL");
-                        e.printStackTrace();
-                    }
-                    return null;
-                }
-            } else {
-                // We only need special things for javafx.embed because osgi-bundles on java9
-                // have the ExtClassloader as its parent
-                if (name.startsWith("javafx.embed")) { //$NON-NLS-1$
-                    synchronized (this) {
-                        if (this.j9Classloader == null) {
-                            try {
-                                this.j9Classloader = getModuleLayer().findLoader("javafx.swt"); //$NON-NLS-1$
-
-                                try {
-                                    this.j9Classloader.loadClass("javafx.application.Platform") //$NON-NLS-1$
-                                            .getDeclaredMethod("setImplicitExit", boolean.class) //$NON-NLS-1$
-                                            .invoke(null, Boolean.FALSE);
-                                } catch (final Throwable e) {
-                                    e.printStackTrace();
-                                }
-                            } catch (final Throwable e) {
-                                throw new ClassNotFoundException("Could not find class '" + name + "'", e); //$NON-NLS-1$//$NON-NLS-2$
-                            }
-                        }
-                        return this.j9Classloader.loadClass(name);
-                    }
-                }
+                return null;
             }
-
-            return super.postFindClass(name, moduleClassLoader);
         } finally {
             this.reentrance = false;
         }
@@ -260,63 +173,48 @@ public class FXClassLoader extends ClassLoaderHook {
     }
 
     private synchronized ModuleLayer getModuleLayer() throws Throwable {
-        if (isEqualGreaterJDK11()) {
-            if (this.moduleLayer == null) {
-                final String javafxDir = System.getProperty("efxclipse.java-modules.dir"); //$NON-NLS-1$
+        if (this.moduleLayer == null) {
+            final String javafxDir = System.getProperty("efxclipse.java-modules.dir"); //$NON-NLS-1$
 
-                List<FXProviderBundle> providers = new ArrayList<>();
+            List<FXProviderBundle> providers = new ArrayList<>();
 
-                if (javafxDir == null) {
-                    providers = getDeployedJavaModuleBundlePaths(this.frameworkContext);
-                } else {
+            if (javafxDir == null) {
+                providers = getDeployedJavaModuleBundlePaths(this.frameworkContext);
+            } else {
+                if (FXClassloaderConfigurator.DEBUG) {
+                    System.err.println("FXClassLoader#getModuleLayer - Use directory '" + javafxDir + "'"); //$NON-NLS-1$//$NON-NLS-2$
+                }
+                final String[] paths = javafxDir.split(";"); //$NON-NLS-1$
+                for (final String dir : paths) {
+                    final Path path = Paths.get(replaceProperties(dir));
                     if (FXClassloaderConfigurator.DEBUG) {
-                        System.err.println("FXClassLoader#getModuleLayer - Use directory '" + javafxDir + "'"); //$NON-NLS-1$//$NON-NLS-2$
+                        System.err.println("FXClassLoader#getModuleLayer - Inspecting path '" + path + "'"); //$NON-NLS-1$//$NON-NLS-2$
                     }
-                    final String[] paths = javafxDir.split(";"); //$NON-NLS-1$
-                    for (final String dir : paths) {
-                        final Path path = Paths.get(replaceProperties(dir));
-                        if (FXClassloaderConfigurator.DEBUG) {
-                            System.err.println("FXClassLoader#getModuleLayer - Inspecting path '" + path + "'"); //$NON-NLS-1$//$NON-NLS-2$
-                        }
-                        if (Files.exists(path)) {
-                            providers = Files.list(path) //
-                                    .filter(p -> p.toString().endsWith(".jar")) //$NON-NLS-1$
-                                    .map(p -> new FXProviderBundle(
-                                            p.getFileName().toString().replace(".jar", "").replace('-', '.'), p)) //$NON-NLS-1$//$NON-NLS-2$
-                                    .collect(Collectors.toList());
-                            break;
-                        }
+                    if (Files.exists(path)) {
+                        providers = Files.list(path) //
+                                .filter(p -> p.toString().endsWith(".jar")) //$NON-NLS-1$
+                                .map(p -> new FXProviderBundle(
+                                        p.getFileName().toString().replace(".jar", "").replace('-', '.'), p)) //$NON-NLS-1$//$NON-NLS-2$
+                                .collect(Collectors.toList());
+                        break;
                     }
-                }
-
-                ClassLoader parentClassloader = getSWTClassloader(this.frameworkContext);
-                if (parentClassloader == null) {
-                    parentClassloader = getClass().getClassLoader();
-                }
-
-                if (FXClassloaderConfigurator.DEBUG) {
-                    System.err.println("FXClassLoader#getModuleLayer - Parent Classloader: " + parentClassloader);
-                }
-
-                this.moduleLayer = initModuleLayer(parentClassloader, providers,
-                        collectModifications(this.frameworkContext));
-
-                if (FXClassloaderConfigurator.DEBUG) {
-                    System.err.println("FXClassLoader#getModuleLayer - Module created: " + moduleLayer);
                 }
             }
-        } else {
-            if (this.moduleLayer == null) {
-                final Path path = Paths.get(System.getProperty("java.home")).resolve("lib").resolve("javafx-swt.jar"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
 
-                ClassLoader parentClassloader = getSWTClassloader(this.frameworkContext);
-                if (parentClassloader == null) {
-                    parentClassloader = getClass().getClassLoader();
-                }
+            ClassLoader parentClassloader = getSWTClassloader(this.frameworkContext);
+            if (parentClassloader == null) {
+                parentClassloader = getClass().getClassLoader();
+            }
 
-                this.moduleLayer = initModuleLayer(parentClassloader,
-                        Collections.singletonList(new FXProviderBundle("javafx.swt", path)), //$NON-NLS-1$
-                        JavaModuleLayerModification.empty());
+            if (FXClassloaderConfigurator.DEBUG) {
+                System.err.println("FXClassLoader#getModuleLayer - Parent Classloader: " + parentClassloader);
+            }
+
+            this.moduleLayer = initModuleLayer(parentClassloader, providers,
+                    collectModifications(this.frameworkContext));
+
+            if (FXClassloaderConfigurator.DEBUG) {
+                System.err.println("FXClassLoader#getModuleLayer - Module created: " + moduleLayer);
             }
         }
 
@@ -360,9 +258,9 @@ public class FXClassLoader extends ClassLoaderHook {
             }
         }
 
-        final String addReads = System.getProperty("efxclipse.osgi.hook.add-reads"); //$NON-NLS-1$
-        final String addOpens = System.getProperty("efxclipse.osgi.hook.add-opens"); //$NON-NLS-1$
-        final String addExports = System.getProperty("efxclipse.osgi.hook.add-exports"); //$NON-NLS-1$
+        final String addReads = System.getProperty("fxloader.osgi.eclipse.hook.add-reads"); //$NON-NLS-1$
+        final String addOpens = System.getProperty("fxloader.osgi.eclipse.hook.add-opens"); //$NON-NLS-1$
+        final String addExports = System.getProperty("fxloader.osgi.eclipse.hook.add-exports"); //$NON-NLS-1$
 
         if (addReads != null) {
             reads.addAll(toReads(addReads, null));
@@ -405,7 +303,7 @@ public class FXClassLoader extends ClassLoaderHook {
     private static ModuleLayer initModuleLayer(final ClassLoader parentClassloader,
             final List<FXProviderBundle> bundles, final JavaModuleLayerModification modifications) throws Throwable {
         try {
-            if (Boolean.getBoolean("efxclipse.osgi.hook.advanced-modules") || !modifications.isEmpty()) { //$NON-NLS-1$
+            if (Boolean.getBoolean("fxloader.osgi.eclipse.hook.advanced-modules") || !modifications.isEmpty()) { //$NON-NLS-1$
                 return advancedModuleLayerBoostrap(parentClassloader, bundles, modifications);
             } else {
                 return defaultModuleLayerBootstrap(parentClassloader, bundles);
@@ -442,9 +340,7 @@ public class FXClassLoader extends ClassLoaderHook {
         }
 
         final URLClassLoader c = new URLClassLoader(urls, parentClassloader) {
-            // Method is defined on Java-9 onwards
             @Override
-            @SuppressWarnings("unused")
             protected java.lang.Class<?> findClass(final String moduleName, final String name) {
                 try {
                     return findClass(name);
@@ -453,9 +349,7 @@ public class FXClassLoader extends ClassLoaderHook {
                 return null;
             }
 
-            // Method is defined on Java-9 onwards
             @Override
-            @SuppressWarnings("unused")
             protected URL findResource(final String moduleName, final String name) throws IOException {
                 return findResource(name);
             }
@@ -493,17 +387,6 @@ public class FXClassLoader extends ClassLoaderHook {
         final ModuleLayer layer = boot.defineModulesWithOneLoader(cf, parentClassloader);
 
         return layer;
-    }
-
-    private URLClassLoader getFXClassloader() {
-        if (this.classLoader == null) {
-            final ClassLoader swtClassloader = getSWTClassloader(this.frameworkContext);
-            // this.swtAvailable = swtClassloader != null;
-            this.classLoader = createJREBundledClassloader(
-                    swtClassloader == null ? ClassLoader.getSystemClassLoader() : swtClassloader,
-                    swtClassloader != null);
-        }
-        return this.classLoader;
     }
 
     private static URLConverter getURLConverter(final URL url, final BundleContext ctx) {
@@ -659,363 +542,4 @@ public class FXClassLoader extends ClassLoaderHook {
         }
     }
 
-    private static URLClassLoader createJREBundledClassloader(final ClassLoader parent, final boolean swtAvailable) {
-        if (FXClassloaderConfigurator.DEBUG) {
-            System.err.println("FXClassLoader#createJREBundledClassloader - Started"); //$NON-NLS-1$
-        }
-
-        try {
-            File javaHome;
-            try {
-                javaHome = new File(System.getProperty("java.home")).getCanonicalFile(); //$NON-NLS-1$
-            } catch (final IOException e) {
-                throw new IllegalStateException("Unable to locate java home", e); //$NON-NLS-1$
-            }
-            if (!javaHome.exists()) {
-                throw new IllegalStateException("The java home '" //$NON-NLS-1$
-                        + javaHome.getAbsolutePath() + "' does not exits"); //$NON-NLS-1$
-            }
-
-            // Java 8 and maybe one day Java 7
-            File jarFile = new File(new File(new File(javaHome.getAbsolutePath(), "lib"), "ext"), "jfxrt.jar"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-            if (FXClassloaderConfigurator.DEBUG) {
-                System.err.println("FXClassLoader#createJREBundledClassloader - Assumed location (Java 8/Java 7): " //$NON-NLS-1$
-                        + jarFile.getAbsolutePath());
-            }
-
-            if (jarFile.exists()) {
-                // if SWT is available we need to construct a new
-                // URL-Classloader with SWT
-                // bundles classloader as the parent
-                if (swtAvailable) {
-                    if (FXClassloaderConfigurator.DEBUG) {
-                        System.err.println(
-                                "FXClassLoader#createJREBundledClassloader - SWT is available use different loading strategy"); //$NON-NLS-1$
-                    }
-
-                    // Since JDK8b113 the swt stuff is in its own jar
-                    final File swtFX = new File(new File(javaHome.getAbsolutePath(), "lib"), "jfxswt.jar"); //$NON-NLS-1$//$NON-NLS-2$
-
-                    if (FXClassloaderConfigurator.DEBUG) {
-                        System.err.println(
-                                "FXClassLoader#createJREBundledClassloader - Searching for SWT-FX integration at " //$NON-NLS-1$
-                                        + swtFX.getAbsolutePath());
-                    }
-
-                    if (swtFX.exists()) {
-                        if (FXClassloaderConfigurator.DEBUG) {
-                            System.err.println("FXClassLoader#createJREBundledClassloader - Found SWT/FX"); //$NON-NLS-1$
-                        }
-
-                        final ClassLoader extClassLoader = ClassLoader.getSystemClassLoader().getParent();
-                        if (extClassLoader.getClass().getName().equals("sun.misc.Launcher$ExtClassLoader")) { //$NON-NLS-1$
-                            if (FXClassloaderConfigurator.DEBUG) {
-                                System.err.println(
-                                        "FXClassLoader#createJREBundledClassloader - Delegate to system classloader"); //$NON-NLS-1$
-                            }
-
-                            return new URLClassLoader(new URL[] { swtFX.getCanonicalFile().toURI().toURL() },
-                                    new SWTFXClassloader(parent, extClassLoader));
-                        }
-
-                        if (FXClassloaderConfigurator.DEBUG) {
-                            System.err.println("FXClassLoader#createJREBundledClassloader - Using an URL classloader"); //$NON-NLS-1$
-                        }
-
-                        return new URLClassLoader(new URL[] { jarFile.getCanonicalFile().toURI().toURL(),
-                                swtFX.getCanonicalFile().toURI().toURL() }, parent);
-                    } else {
-                        if (FXClassloaderConfigurator.DEBUG) {
-                            System.err.println(
-                                    "FXClassLoader#createJREBundledClassloader - Assume that SWT-FX part of jfxrt.jar"); //$NON-NLS-1$
-                        }
-
-                        final URL url = jarFile.getCanonicalFile().toURI().toURL();
-                        return new URLClassLoader(new URL[] { url }, parent);
-                    }
-                } else {
-                    // we should be able to delegate to the
-                    // URL-Extension-Classloader, which is essential for
-                    // ScenicView
-                    // which installs an JMX-Component
-                    try {
-                        final ClassLoader extClassLoader = ClassLoader.getSystemClassLoader().getParent();
-                        if (extClassLoader.getClass().getName().equals("sun.misc.Launcher$ExtClassLoader")) { //$NON-NLS-1$
-                            if (FXClassloaderConfigurator.DEBUG) {
-                                System.err.println(
-                                        "FXClassLoader#createJREBundledClassloader - Delegate to system classloader"); //$NON-NLS-1$
-                            }
-                            return new URLClassLoader(new URL[] {}, extClassLoader);
-                        }
-                    } catch (final Throwable t) {
-                        t.printStackTrace();
-                    }
-
-                    if (FXClassloaderConfigurator.DEBUG) {
-                        System.err.println("FXClassLoader#createJREBundledClassloader - Using an URL classloader"); //$NON-NLS-1$
-                    }
-
-                    final URL url = jarFile.getCanonicalFile().toURI().toURL();
-                    final URLClassLoader cl = new URLClassLoader(new URL[] { url }, parent);
-                    return cl;
-                }
-            }
-
-            // Java 7
-            jarFile = new File(new File(javaHome.getAbsolutePath(), "lib"), //$NON-NLS-1$
-                    "jfxrt.jar"); //$NON-NLS-1$
-            if (FXClassloaderConfigurator.DEBUG) {
-                System.err.println("FXClassLoader#createJREBundledClassloader - Assumed location (Java 7): " //$NON-NLS-1$
-                        + jarFile.getAbsolutePath());
-            }
-
-            if (jarFile.exists()) {
-                final URL url = jarFile.getCanonicalFile().toURI().toURL();
-                return new URLClassLoader(new URL[] { url }, parent);
-            } else {
-                if (FXClassloaderConfigurator.DEBUG) {
-                    System.err.println("FXClassLoader#createJREBundledClassloader - File does not exist."); //$NON-NLS-1$
-                }
-            }
-        } catch (final Exception e) {
-            e.printStackTrace();
-        } finally {
-            if (FXClassloaderConfigurator.DEBUG) {
-                System.err.println("FXClassLoader#createJREBundledClassloader - Ended"); //$NON-NLS-1$
-            }
-        }
-
-        return null;
-    }
-
-    static class EmptyEnumeration implements Enumeration<URL> {
-        static Enumeration<URL> INSTANCE = new EmptyEnumeration();
-
-        @Override
-        public boolean hasMoreElements() {
-            return false;
-        }
-
-        @Override
-        public URL nextElement() {
-            return null;
-        }
-
-    }
-
-    static class SWTFXClassloader extends ClassLoader {
-        private final ClassLoader lastResortLoader;
-        private final ClassLoader primaryLoader;
-        private Boolean checkFlag = null;
-
-        public SWTFXClassloader(final ClassLoader lastResortLoader, final ClassLoader primaryLoader) {
-            this.lastResortLoader = lastResortLoader;
-            this.primaryLoader = primaryLoader;
-            if (FXClassloaderConfigurator.DEBUG) {
-                System.err.println("FXClassLoader.SWTFXClassloader#init - Primary Loader " + primaryLoader); //$NON-NLS-1$
-                System.err.println("FXClassLoader.SWTFXClassloader#init - Lastresort Loader " + lastResortLoader); //$NON-NLS-1$
-            }
-        }
-
-        @Override
-        protected Class<?> findClass(final String name) throws ClassNotFoundException {
-            // We can never load stuff from there and this would lead to a loop
-            if (name.startsWith("javafx.embed.swt")) { //$NON-NLS-1$
-                if (this.checkFlag == null) {
-                    this.checkFlag = Boolean.TRUE;
-
-                    // On JDK-8 we need to check for GTK3
-                    if (isJDK8()) {
-                        boolean supportsGtk3 = false;
-                        final String version = System.getProperty("java.version", ""); //$NON-NLS-1$//$NON-NLS-2$
-
-                        final Matcher matcher = Pattern.compile(".+_(\\d+).*").matcher(version); //$NON-NLS-1$
-                        if (matcher.matches() && matcher.groupCount() > 0) {
-                            supportsGtk3 = Integer.parseInt(matcher.group(1)) >= 202;
-                        }
-
-                        if (!supportsGtk3) {
-                            Boolean isGTK3 = Boolean.FALSE;
-                            try {
-
-                                if (FXClassloaderConfigurator.DEBUG) {
-                                    System.err.println(
-                                            "FXModuleClassloader#findLocalClass - Someone is trying to load FXCanvas. Need to check for GTK3"); //$NON-NLS-1$
-                                }
-
-                                // Check for GTK3
-                                final String value = (String) loadClass("org.eclipse.swt.SWT") //$NON-NLS-1$
-                                        .getDeclaredMethod("getPlatform") //$NON-NLS-1$
-                                        .invoke(null);
-                                if ("gtk".equals(value)) { //$NON-NLS-1$
-                                    if (FXClassloaderConfigurator.DEBUG) {
-                                        System.err.println(
-                                                "FXModuleClassloader#findLocalClass - We are on GTK need to take a closer look"); //$NON-NLS-1$
-                                    }
-
-                                    // Constants moved with Photon
-                                    try {
-                                        isGTK3 = (Boolean) loadClass("org.eclipse.swt.internal.gtk.GTK") //$NON-NLS-1$
-                                                .getDeclaredField("GTK3") //$NON-NLS-1$
-                                                .get(null);
-                                    } catch (final Throwable t) {
-                                        isGTK3 = (Boolean) loadClass("org.eclipse.swt.internal.gtk.OS") //$NON-NLS-1$
-                                                .getDeclaredField("GTK3") //$NON-NLS-1$
-                                                .get(null);
-                                    }
-                                } else {
-                                    if (FXClassloaderConfigurator.DEBUG) {
-                                        System.err.println("FXModuleClassloader#findLocalClass - OS is '" + value //$NON-NLS-1$
-                                                + "' no need to get upset all is fine"); //$NON-NLS-1$
-                                    }
-                                }
-                            } catch (final Throwable e) {
-                                System.err.println("FXModuleClassloader#findLocalClass - Failed to check for Gtk3"); //$NON-NLS-1$
-                                e.printStackTrace();
-                            }
-
-                            if (isGTK3.booleanValue()) {
-                                if (FXClassloaderConfigurator.DEBUG) {
-                                    System.err.println(
-                                            "FXModuleClassloader#findLocalClass - We are on GTK3 - too bad need to disable JavaFX for now else we'll crash the JVM"); //$NON-NLS-1$
-                                }
-                                throw new ClassNotFoundException(
-                                        "SWT is running with GTK3 but JavaFX is linked against GTK2"); //$NON-NLS-1$
-                            }
-                        }
-
-                    }
-
-                    try {
-                        loadClass("javafx.application.Platform").getDeclaredMethod("setImplicitExit", boolean.class) //$NON-NLS-1$ //$NON-NLS-2$
-                                .invoke(null, Boolean.FALSE);
-                    } catch (final Throwable e) {
-                        e.printStackTrace();
-                    }
-                }
-                return super.findClass(name);
-            }
-            try {
-                if (FXClassloaderConfigurator.DEBUG) {
-                    System.err.println("FXClassLoader.SWTFXClassloader#findClass - Loading " + name + " with primary"); //$NON-NLS-1$ //$NON-NLS-2$
-                }
-                final Class<?> loadClass = this.primaryLoader.loadClass(name);
-                if (FXClassloaderConfigurator.DEBUG) {
-                    System.err.println("FXClassLoader.SWTFXClassloader#findClass - Result " + name + " " + loadClass); //$NON-NLS-1$ //$NON-NLS-2$
-                }
-                return loadClass;
-            } catch (final ClassNotFoundException c) {
-                if (FXClassloaderConfigurator.DEBUG) {
-                    System.err.println("FXClassLoader.SWTFXClassloader#findClass - ClassNotFoundException thrown"); //$NON-NLS-1$
-                    System.err.println(
-                            "FXClassLoader.SWTFXClassloader#findClass - Loading " + name + " with last resort"); //$NON-NLS-1$ //$NON-NLS-2$
-                }
-
-                try {
-                    final Class<?> loadClass = this.lastResortLoader.loadClass(name);
-                    if (FXClassloaderConfigurator.DEBUG) {
-                        System.err
-                                .println("FXClassLoader.SWTFXClassloader#findClass - Result " + name + " " + loadClass); //$NON-NLS-1$ //$NON-NLS-2$
-                    }
-                    return loadClass;
-                } catch (final ClassNotFoundException tmp) {
-                    if (FXClassloaderConfigurator.DEBUG) {
-                        System.err.println(
-                                "FXClassLoader.SWTFXClassloader#findClass - Even last resort was unable to load " //$NON-NLS-1$
-                                        + name);
-                    }
-                    throw c;
-                }
-            }
-        }
-
-        @Override
-        protected URL findResource(final String name) {
-            URL url = this.primaryLoader.getResource(name);
-            if (url == null) {
-                url = this.lastResortLoader.getResource(name);
-            }
-            return url;
-        }
-
-        @Override
-        protected Enumeration<URL> findResources(final String name) throws IOException {
-            final Enumeration<URL> en1 = this.primaryLoader.getResources(name);
-            final Enumeration<URL> en2 = this.lastResortLoader.getResources(name);
-
-            return new Enumeration<>() {
-                @Override
-                public boolean hasMoreElements() {
-                    if (en1.hasMoreElements()) {
-                        return true;
-                    }
-                    return en2.hasMoreElements();
-                }
-
-                @Override
-                public URL nextElement() {
-                    if (!en1.hasMoreElements()) {
-                        return en2.nextElement();
-                    }
-                    return en1.nextElement();
-                }
-            };
-        }
-
-        @Override
-        public URL getResource(final String name) {
-            URL url = this.primaryLoader.getResource(name);
-            if (url == null) {
-                url = this.lastResortLoader.getResource(name);
-            }
-            return url;
-        }
-
-        @SuppressWarnings("resource")
-        @Override
-        public InputStream getResourceAsStream(final String name) {
-            InputStream in = this.primaryLoader.getResourceAsStream(name);
-            if (in == null) {
-                in = this.lastResortLoader.getResourceAsStream(name);
-            }
-            return in;
-        }
-
-        @Override
-        public Enumeration<URL> getResources(final String name) throws IOException {
-            final Enumeration<URL> en1 = this.primaryLoader.getResources(name);
-            final Enumeration<URL> en2 = this.lastResortLoader.getResources(name);
-
-            return new Enumeration<>() {
-                @Override
-                public boolean hasMoreElements() {
-                    if (en1.hasMoreElements()) {
-                        return true;
-                    }
-                    return en2.hasMoreElements();
-                }
-
-                @Override
-                public URL nextElement() {
-                    if (!en1.hasMoreElements()) {
-                        return en2.nextElement();
-                    }
-                    return en1.nextElement();
-                }
-            };
-        }
-
-        @Override
-        public Class<?> loadClass(final String name) throws ClassNotFoundException {
-            try {
-                return this.primaryLoader.loadClass(name);
-            } catch (final ClassNotFoundException c) {
-                try {
-                    return this.lastResortLoader.loadClass(name);
-                } catch (final ClassNotFoundException tmp) {
-                    throw c;
-                }
-            }
-        }
-    }
 }
