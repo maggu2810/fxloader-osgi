@@ -2,8 +2,8 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
 
-  <groupId>de.maggu2810.osgi.efxclipse</groupId>
-  <artifactId>efxclipse-osgi</artifactId>
+  <groupId>de.maggu2810.osgi.fxloader</groupId>
+  <artifactId>fxloader-osgi-eclipse</artifactId>
   <version>0.0.1-SNAPSHOT</version>
 
   <licenses>
@@ -15,21 +15,21 @@
   </licenses>
 
   <scm>
-    <connection>scm:git:git@github.com:maggu2810/efxclipse-osgi.git</connection>
-    <developerConnection>scm:git:git@github.com:maggu2810/efxclipse-osgi.git</developerConnection>
+    <connection>scm:git:git@github.com:maggu2810/fxloader-osgi.git</connection>
+    <developerConnection>scm:git:git@github.com:maggu2810/fxloader-osgi.git</developerConnection>
     <tag>HEAD</tag>
-    <url>https://github.com/maggu2810/efxclipse-osgi</url>
+    <url>https://github.com/maggu2810/fxloader-osgi</url>
   </scm>
 
   <issueManagement>
     <system>GitLab</system>
-    <url>https://github.com/maggu2810/efxclipse-osgi/issues</url>
+    <url>https://github.com/maggu2810/fxloader-osgi/issues</url>
   </issueManagement>
 
   <distributionManagement>
     <repository>
       <id>bintray</id>
-      <url>https://api.bintray.com/maven/maggu2810/maven/efxclipse-osgi</url>
+      <url>https://api.bintray.com/maven/maggu2810/maven/fxloader-osgi</url>
     </repository>
     <snapshotRepository>
       <id>bintray</id>
